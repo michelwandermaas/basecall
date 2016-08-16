@@ -1,6 +1,7 @@
 import training
 import random
 import utils
+import scale
 import numpy as np
 import sys
 import math
@@ -18,16 +19,31 @@ class basecallTraining():
     current_index_input = 0
     current_index_reference = 0
     current_bases_per_event_ratio = 1
+    current_scale = 0
+    current_scale_sd = 0
+    current_shift = 0
     def __init__(self, train_dir, test_dir):
         if (train_dir.endswith("/")):
             basecallTraining.train_dir = train_dir
         else:
             basecallTraining.train_dir = train_dir+"/"
-            print basecallTraining.train_dir
         if (test_dir.endswith("/")):
             basecallTraining.test_dir = test_dir
         else:
             basecallTraining.test_dir = test_dir+"/"
+
+    @staticmethod
+    def resetValues():
+        basecallTraining.current_file = ""
+        basecallTraining.current_file_length = 0
+        basecallTraining.current_lines = None
+        basecallTraining.current_input = None
+        basecallTraining.current_index_input = 0
+        basecallTraining.current_index_reference = utils.extend_size
+        basecallTraining.current_bases_per_event_ratio = 1
+        basecallTraining.current_scale = 0
+        basecallTraining.current_scale_sd = 0
+        basecallTraining.current_shift = 0
 
     @staticmethod
     def getFiles(path):
@@ -37,6 +53,7 @@ class basecallTraining():
     @staticmethod
     def get_next_input():
         if (basecallTraining.current_file == "" or (basecallTraining.current_file_length - basecallTraining.current_index_input) < utils.batch_size):
+            basecallTraining.resetValues()
             train_files = basecallTraining.getFiles(basecallTraining.train_dir)
             num = random.randrange(0,len(train_files))
             target_file = train_files[num]
@@ -45,9 +62,16 @@ class basecallTraining():
             basecallTraining.current_lines = lines
             basecallTraining.current_file = target_file
             basecallTraining.current_file_length = len(lines)
+            fast5file = basecallTraining.current_lines[0].split()[4]
+            basecallTraining.current_scale, basecallTraining.current_scale_sd, basecallTraining.current_shift = scale.get_scale_and_shift(fast5file, 1, "template")
             input = []
-            for l in basecallTraining.current_lines:
-                input.append(l.split())
+            for x in range(1,len(basecallTraining.current_lines)):
+                input.append(basecallTraining.current_lines[x].split())
+                mean = input[len(input)-1][0]
+                stdv = input[len(input)-1][1]
+                mean, stdv = scale.scale(mean,stdv,basecallTraining.current_scale,basecallTraining.current_scale_sd,basecallTraining.current_shift)
+                input[len(input) - 1][0] = mean
+                input[len(input) - 1][1] = stdv
             input.pop(0)
             basecallTraining.current_input = input
             basecallTraining.current_bases_per_event_ratio = float(float(len(basecallTraining.current_lines[0].split()[3]))/float(len(input)))
