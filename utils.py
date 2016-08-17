@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import random
 import sys
+import math
 
 #variables
 
@@ -11,29 +12,17 @@ sequence_size = batch_size + (extend_size*2)
 feature_size = 3
 elements_size = 2
 dictionary = ["A","C","G","T","-"]
-dict = {"A":0,"C":1,"G":2,"T":3,"-":4}
+alphabet_dict = {"A":0, "C":1, "G":2, "T":3, "-":4}
 dictionary_no_gap = ["A","C","G","T"]
 dictionary_size = dictionary.__len__()
 lstm_hidden_size = feature_size
 number_of_layers = 3
-learning_rate = 0.05
+learning_rate = 0.01
 training_steps = 1000
 type = tf.float32
 
-numAcc = 2 #every x iterations for accuracy calculation
+numAcc = 20 #every x iterations for accuracy calculation
 
-
-
-
-'''
-    Rob mentioned normalising the data with a overall current mean parameter.
-    Also he said something about these shift parameters.
-'''
-
-
-'''
-    Alignment penalties: Multiply by probabilities
-'''
 
 
 #aligment variables
@@ -46,7 +35,7 @@ numAcc = 2 #every x iterations for accuracy calculation
 '''
 identical_char_score = 2
 non_identical_char_score = 1
-gap_opening_score = -2
+gap_opening_score = -4
 gap_identical_score = 0
 
 #functions
@@ -113,6 +102,64 @@ def score_match(A,B, match_score, mismatch_score, gap_score, gap_identical_score
         return gap_score
     else:
         return mismatch_score
+
+def get_prob_dict(prob):
+    return_list = []
+    for x in prob:
+        dict = {}
+        for y in range(len(x)):
+            dict[dictionary[y]] = x[y]
+        return_list.append(dict)
+    return return_list
+
+def probability_alignment(probabilities, reference_sequence):
+    '''
+    :param probabilities: list of a dictionary {"Base":log probabilities}
+    :param reference_sequence: a string
+    :return: aligned reference
+    '''
+    m, n = len(probabilities), len(reference_sequence)  # length of two sequences
+
+    # Generate DP table and traceback path pointer matrix
+    score = (np.zeros((m + 1, n + 1))).tolist()  # the DP table
+    pointer = (np.zeros((m + 1, n + 1))).tolist()  # to store the traceback path
+
+    max_score = 0  # initial maximum score in DP table
+    # Calculate DP table and mark pointers
+    max_i, max_j = 0, 0
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]])
+            #score_left = score[i][j - 1] + math.log(probabilities[i - 1]["-"])
+            score_left = score[i-1][j] + math.log(probabilities[i - 1]["-"])
+            score[i][j] = min(score_left, score_diagonal) #TODO: review
+            if score[i][j] == score_left:
+                pointer[i][j] = 1  # 1 means trace up
+            if score[i][j] == score_diagonal:
+                pointer[i][j] = 3  # 3 means trace diagonal
+            if score[i][j] <= max_score:
+                max_i = i
+                max_j = j
+                max_score = score[i][j]
+
+    align1, align2 = '', ''  # initial sequences
+
+    i, j = max_i, max_j  # indices of path starting point
+
+    #print pointer
+    #sys.exit()
+
+    # traceback, follow pointers
+    while i > 0 and j > 0:
+        if pointer[i][j] == 3:
+            align2 += reference_sequence[j - 1]
+            i -= 1
+            j -= 1
+        elif pointer[i][j] == 1:
+            align2 += '-'
+            i -= 1
+
+    return align2[::-1]
 
 def needle(seq1, seq2, match_score, mismatch_score, gap_score, gap_identical_score): #seq 1 equals output and seq2 equals reference, returns seq2 aligned
     '''
@@ -200,10 +247,10 @@ def get_argmax_encoding_prob(seq):
         if(idx == 0):
             sequences.append([])
             idx += 1
-            sequences[len(sequences)-1].append(float(dict[x]))
+            sequences[len(sequences)-1].append(float(alphabet_dict[x]))
         else:
             idx = 0
-            sequences[len(sequences)-1].append(float(dict[x]))
+            sequences[len(sequences)-1].append(float(alphabet_dict[x]))
 
     return np.asarray(sequences)
 

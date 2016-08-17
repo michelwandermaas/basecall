@@ -1,6 +1,7 @@
 import utils
 import tensorflow as tf
 import numpy as np
+import sys
 
 def training(get_next_input, get_next_reference_sequence, get_test_input = None, get_test_reference_input = None):
 
@@ -109,6 +110,12 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
         output_sequence, output_avg_prob, non_output_avg_prob = utils.get_sequence_from_prob(prob_reshaped)
         aligned_reference = utils.align(output_sequence, reference_sequence, output_avg_prob, non_output_avg_prob)
+
+        probabilities_dict = utils.get_prob_dict(prob)
+
+        aligned_reference = utils.probability_alignment(probabilities_dict, reference_sequence)
+        #print probabilities_dict
+
         target_prob = utils.get_one_hot_encoding_prob(aligned_reference)
 
         target_prob = target_prob.reshape(utils.batch_size * utils.elements_size, utils.dictionary_size)
