@@ -77,7 +77,9 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
     '''
 
     # instead of calculating this, I will calculate the difference between the target_W and the current W
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(pred_reshaped, target_probabilties)
+    #cross_entropy = tf.nn.softmax_cross_entropy_with_logits(pred_reshaped, target_probabilties)
+
+    cross_entropy = tf.abs(tf.sub(prediction, target_probabilties))
 
     #tf.scalar_summary("cross_entropy", cross_entropy)
 
@@ -90,7 +92,7 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
     merged = tf.merge_all_summaries()
 
-    trainWriter = tf.train.SummaryWriter("./train", sess.graph)
+    trainWriter = tf.train.SummaryWriter("./train2", sess.graph)
 
     optimizer = tf.train.GradientDescentOptimizer(utils.learning_rate).minimize(cost)
 

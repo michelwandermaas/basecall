@@ -18,10 +18,10 @@ dictionary_size = dictionary.__len__()
 lstm_hidden_size = feature_size
 number_of_layers = 3
 learning_rate = 0.01
-training_steps = 1000
+training_steps = 10000
 type = tf.float32
 
-numAcc = 20 #every x iterations for accuracy calculation
+numAcc = 100 #every x iterations for accuracy calculation
 
 
 
