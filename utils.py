@@ -15,7 +15,7 @@ dictionary = ["A","C","G","T","-"]
 alphabet_dict = {"A":0, "C":1, "G":2, "T":3, "-":4}
 dictionary_no_gap = ["A","C","G","T"]
 dictionary_size = dictionary.__len__()
-lstm_hidden_size = feature_size
+lstm_hidden_size = feature_size/2
 number_of_layers = 3
 learning_rate = 0.01
 training_steps = 10000
@@ -44,6 +44,28 @@ gap_identical_score = 0
 
 # I can simply transform the one-hot-encoding probabilities to an array of W`s size, and it would be made of 0`s and 1`s
 # that would make one weight go up and the others go down
+
+'''
+    This function will take size, calculate a normal distribution based on mean and stdv. Then it output the f(x), for
+    size x`s between 0 and 1, in order, and equally spaced.
+'''
+
+mean_gaussian = 0.5
+stdv_gaussian = 0.2
+min_gaussian = 0.1
+
+def gaussian(x, sigma, mu):
+    return 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (x - mu) ** 2 / (2 * sigma ** 2))
+
+def get_gaussian_distr(size):
+    x = np.zeros(size)
+    step = float(1.0/float(size))
+    for i in range(size):
+        x[i] = gaussian(i*step, stdv_gaussian, mean_gaussian)
+        if x[i] < min_gaussian:
+            x[i] = min_gaussian
+    return x
+
 def get_sequences_identity(seq1,seq2):
     equal = 0.0
     for i in range(len(seq1)):
@@ -91,7 +113,6 @@ def get_sequence_from_prob(probabilities):
             total_out_prob += max
     output_avg_prob = total_out_prob/(batch_size*elements_size*dictionary_size)
     return sequences, output_avg_prob, (1-output_avg_prob)
-    #raise NotImplementedError
 
 def score_match(A,B, match_score, mismatch_score, gap_score, gap_identical_score):
     if (A == "-" and B == "-"):
@@ -118,6 +139,8 @@ def probability_alignment(probabilities, reference_sequence):
     :param reference_sequence: a string
     :return: aligned reference
     '''
+    gauss = np.log(get_gaussian_distr(len(probabilities)))
+
     m, n = len(probabilities), len(reference_sequence)  # length of two sequences
 
     # Generate DP table and traceback path pointer matrix
@@ -129,10 +152,10 @@ def probability_alignment(probabilities, reference_sequence):
     max_i, max_j = 0, 0
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]])
+            score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]]) + gauss[i-1]
             #score_left = score[i][j - 1] + math.log(probabilities[i - 1]["-"])
-            score_left = score[i-1][j] + math.log(probabilities[i - 1]["-"])
-            score[i][j] = min(score_left, score_diagonal) #TODO: review
+            score_left = score[i-1][j] + math.log(probabilities[i - 1]["-"]) + gauss[i-1]
+            score[i][j] = min(score_left, score_diagonal)
             if score[i][j] == score_left:
                 pointer[i][j] = 1  # 1 means trace up
             if score[i][j] == score_diagonal:

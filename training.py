@@ -13,6 +13,8 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
     target_probabilties = tf.placeholder(utils.type, [utils.batch_size * utils.elements_size, utils.dictionary_size])
 
+    gaussian = tf.placeholder(utils.type, [utils.batch_size * utils.elements_size, utils.dictionary_size])
+
     target_max = tf.placeholder(utils.type, [utils.batch_size * utils.elements_size])
 
 
@@ -79,11 +81,11 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
     # instead of calculating this, I will calculate the difference between the target_W and the current W
     #cross_entropy = tf.nn.softmax_cross_entropy_with_logits(pred_reshaped, target_probabilties)
 
-    cross_entropy = tf.abs(tf.sub(prediction, target_probabilties))
+    loss = tf.abs(tf.sub(prediction, target_probabilties) * gaussian)
 
     #tf.scalar_summary("cross_entropy", cross_entropy)
 
-    cost = tf.reduce_mean(cross_entropy)
+    cost = tf.reduce_mean(loss)
     # approach I tried
     '''
     cost = tf.reduce_mean(tf.sub(target_max,maxed_out))
@@ -92,11 +94,19 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
     merged = tf.merge_all_summaries()
 
-    trainWriter = tf.train.SummaryWriter("./train2", sess.graph)
+    trainWriter = tf.train.SummaryWriter("./training_tensorboard", sess.graph)
 
     optimizer = tf.train.GradientDescentOptimizer(utils.learning_rate).minimize(cost)
 
     sess.run(tf.initialize_all_variables())
+
+    aux_gauss = utils.get_gaussian_distr(utils.batch_size*utils.elements_size)
+
+    extended_gauss = np.zeros((utils.batch_size * utils.elements_size, utils.dictionary_size))
+
+    for i in range(utils.batch_size * utils.elements_size):
+        for j in range(utils.dictionary_size):
+            extended_gauss[i][j] = aux_gauss[i]
 
     for i in range(utils.training_steps):
         my_input = get_next_input()
@@ -111,11 +121,13 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
         prob_reshaped = np.reshape(prob, (utils.batch_size, utils.elements_size, utils.dictionary_size))
 
         output_sequence, output_avg_prob, non_output_avg_prob = utils.get_sequence_from_prob(prob_reshaped)
-        aligned_reference = utils.align(output_sequence, reference_sequence, output_avg_prob, non_output_avg_prob)
+        #aligned_reference = utils.align(output_sequence, reference_sequence, output_avg_prob, non_output_avg_prob)
 
         probabilities_dict = utils.get_prob_dict(prob)
 
         aligned_reference = utils.probability_alignment(probabilities_dict, reference_sequence)
+
+        #aligned_reference = utils.probability_middleground_align(output_sequence, probabilities_dict,reference_sequence, utils.identical_char_score, utils.non_identical_char_score, utils.gap_opening_score, utils.gap_identical_score)
         #print probabilities_dict
 
         target_prob = utils.get_one_hot_encoding_prob(aligned_reference)
@@ -127,10 +139,11 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
         '''
 
 
-        opt, summary = sess.run([optimizer, merged], feed_dict={X: my_input, target_probabilties: target_prob})
-        if (i % utils.numAcc):
+        opt, summary = sess.run([optimizer, merged], feed_dict={X: my_input, target_probabilties: target_prob, gaussian: extended_gauss})
+        if (i % utils.numAcc == 0):
+            print "Iteration "+str(i)
             #print prob_reshaped
-            #print "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+            print "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
             print output_sequence
             print "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"
             print reference_sequence
