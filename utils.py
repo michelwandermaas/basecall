@@ -7,7 +7,7 @@ import math
 #variables
 
 batch_size = 100
-extend_size = 6
+extend_size = 12
 sequence_size = batch_size + (extend_size*2)
 feature_size = 3
 elements_size = 2
@@ -15,13 +15,13 @@ dictionary = ["A","C","G","T","-"]
 alphabet_dict = {"A":0, "C":1, "G":2, "T":3, "-":4}
 dictionary_no_gap = ["A","C","G","T"]
 dictionary_size = dictionary.__len__()
-lstm_hidden_size = feature_size/2
+lstm_hidden_size = 100
 number_of_layers = 3
 learning_rate = 0.01
 training_steps = 10000
 type = tf.float32
 
-numAcc = 100 #every x iterations for accuracy calculation
+numAcc = 2 #every x iterations for accuracy calculation
 
 
 
@@ -50,18 +50,18 @@ gap_identical_score = 0
     size x`s between 0 and 1, in order, and equally spaced.
 '''
 
-mean_gaussian = 0.5
-stdv_gaussian = 0.2
+mean_gaussian = 0.6
+stdv_gaussian = 0.1
 min_gaussian = 0.1
 
 def gaussian(x, sigma, mu):
     return 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (x - mu) ** 2 / (2 * sigma ** 2))
 
-def get_gaussian_distr(size):
+def get_gaussian_distr(size, sig_gaussian=mean_gaussian, mu_gaussian=mean_gaussian):
     x = np.zeros(size)
     step = float(1.0/float(size))
     for i in range(size):
-        x[i] = gaussian(i*step, stdv_gaussian, mean_gaussian)
+        x[i] = gaussian(i*step, sig_gaussian, mu_gaussian)
         if x[i] < min_gaussian:
             x[i] = min_gaussian
     return x
@@ -133,56 +133,92 @@ def get_prob_dict(prob):
         return_list.append(dict)
     return return_list
 
-def probability_alignment(probabilities, reference_sequence):
+minimum_length_ref_seq = batch_size/3
+
+def align_by_prob(probabilities,reference_sequence):
+    best_score = -sys.maxint
+    best_avg_score = -sys.maxint
+    length = minimum_length_ref_seq
+    best_length = length
+    best_alignment = ""
+    middle_point = len(reference_sequence)/2
+    while length < len(reference_sequence):
+        start_point = middle_point - length/2
+        end_point = middle_point + length/2
+        alignment, score = needle_prob(probabilities, reference_sequence[start_point:end_point])
+        avg_score = float(score/float(length))
+        print length
+        print alignment
+        print avg_score
+        if avg_score > best_avg_score:
+            best_avg_score = avg_score
+            best_length = length
+            best_alignment = alignment
+        length += 2
+
+    #sys.exit()
+    print "--------------------"
+    print best_score
+    print best_length
+    sys.exit()
+    return best_alignment
+
+
+def needle_prob(probabilities, reference_sequence):
     '''
-    :param probabilities: list of a dictionary {"Base":log probabilities}
-    :param reference_sequence: a string
-    :return: aligned reference
+        This is a global alignment with no vertical transition. Also, there`s a weight to each score addition equivalent
+        to the position of that alignment in the reference sequence. This weight is taken from a normal distribution,
+        with a minimum weight, in a way that the position closest to the center of the sequence gets higher weights.
+        The goal is to prioritize the right alignment of the middle part, which is less prone to error.
     '''
-    gauss = np.log(get_gaussian_distr(len(probabilities)))
+    #gauss = np.log(get_gaussian_distr(len(reference_sequence)+1))
 
     m, n = len(probabilities), len(reference_sequence)  # length of two sequences
-
     # Generate DP table and traceback path pointer matrix
     score = (np.zeros((m + 1, n + 1))).tolist()  # the DP table
-    pointer = (np.zeros((m + 1, n + 1))).tolist()  # to store the traceback path
+    # Calculate DP table
 
-    max_score = 0  # initial maximum score in DP table
-    # Calculate DP table and mark pointers
-    max_i, max_j = 0, 0
+    for i in range(1, m + 1):
+        score[i][0] = score[i-1][0] + math.log(probabilities[i-1][reference_sequence[0]])
+
+    for j in range(1, n + 1):
+        score[0][j] = score[0][j - 1] + math.log(probabilities[0]["-"])
+
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]]) + gauss[i-1]
-            #score_left = score[i][j - 1] + math.log(probabilities[i - 1]["-"])
-            score_left = score[i-1][j] + math.log(probabilities[i - 1]["-"]) + gauss[i-1]
-            score[i][j] = min(score_left, score_diagonal)
-            if score[i][j] == score_left:
-                pointer[i][j] = 1  # 1 means trace up
-            if score[i][j] == score_diagonal:
-                pointer[i][j] = 3  # 3 means trace diagonal
-            if score[i][j] <= max_score:
-                max_i = i
-                max_j = j
-                max_score = score[i][j]
+            match = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]])# + gauss[j-1]
+            delete = score[i][j-1] + math.log(probabilities[i - 1]["-"])# + gauss[j-1]
+            score[i][j] = max(match, delete)
+    # Traceback and compute the alignment
+    align1, align2 = '', ''
+    best_j = n
+    best_score = score[m][n]
+    for j in range(1,n-1):
+        if score[m][j] > best_score:
+            best_j = j
+            best_score = score[m][j]
 
-    align1, align2 = '', ''  # initial sequences
-
-    i, j = max_i, max_j  # indices of path starting point
-
-    #print pointer
-    #sys.exit()
-
-    # traceback, follow pointers
-    while i > 0 and j > 0:
-        if pointer[i][j] == 3:
+    i, j = m, best_j  # start from the bottom right cell
+    while i > 0 and j > 0:  # end toching the top or the left edge
+        score_current = score[i][j]
+        score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]])# + gauss[j-1]
+        score_left = score[i][j-1] + math.log(probabilities[i - 1]["-"])# + gauss[j-1]
+        if score_current == score_diagonal:
             align2 += reference_sequence[j - 1]
             i -= 1
             j -= 1
-        elif pointer[i][j] == 1:
+        elif score_current == score_left:
             align2 += '-'
             i -= 1
+        else:
+            print "Error.\n"
+            sys.exit(-1)
+    # Finish tracing up to the top left cell
+    while i > 0:
+        align2 += '-'
+        i -= 1
+    return align2[::-1], best_score
 
-    return align2[::-1]
 
 def needle(seq1, seq2, match_score, mismatch_score, gap_score, gap_identical_score): #seq 1 equals output and seq2 equals reference, returns seq2 aligned
     '''

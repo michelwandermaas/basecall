@@ -125,7 +125,7 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
         probabilities_dict = utils.get_prob_dict(prob)
 
-        aligned_reference = utils.probability_alignment(probabilities_dict, reference_sequence)
+        aligned_reference, _ = utils.needle_prob(probabilities_dict, reference_sequence)
 
         #aligned_reference = utils.probability_middleground_align(output_sequence, probabilities_dict,reference_sequence, utils.identical_char_score, utils.non_identical_char_score, utils.gap_opening_score, utils.gap_identical_score)
         #print probabilities_dict
