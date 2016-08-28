@@ -7,7 +7,7 @@ import math
 #variables
 
 batch_size = 100
-extend_size = 12
+extend_size = batch_size/5
 sequence_size = batch_size + (extend_size*2)
 feature_size = 3
 elements_size = 2
@@ -50,8 +50,8 @@ gap_identical_score = 0
     size x`s between 0 and 1, in order, and equally spaced.
 '''
 
-mean_gaussian = 0.6
-stdv_gaussian = 0.1
+mean_gaussian = 0.5
+stdv_gaussian = 0.15
 min_gaussian = 0.1
 
 def gaussian(x, sigma, mu):
@@ -133,50 +133,139 @@ def get_prob_dict(prob):
         return_list.append(dict)
     return return_list
 
-minimum_length_ref_seq = batch_size/3
+minimum_length_ref_seq = batch_size*elements_size
 
 def align_by_prob(probabilities,reference_sequence):
-    best_score = -sys.maxint
-    best_avg_score = -sys.maxint
     length = minimum_length_ref_seq
-    best_length = length
     best_alignment = ""
     middle_point = len(reference_sequence)/2
-    while length < len(reference_sequence):
+    avg_score = -sys.maxint
+    best_score = -sys.maxint
+    while length < len(reference_sequence) and avg_score < -1.6:
         start_point = middle_point - length/2
         end_point = middle_point + length/2
-        alignment, score = needle_prob(probabilities, reference_sequence[start_point:end_point])
-        avg_score = float(score/float(length))
-        print length
-        print alignment
-        print avg_score
-        if avg_score > best_avg_score:
-            best_avg_score = avg_score
-            best_length = length
+        alignment, score = deepnano_align(probabilities, reference_sequence[start_point:end_point])
+        avg_score = float(float(score)/float(len(probabilities)))
+        if avg_score > best_score:
+            best_score = avg_score
             best_alignment = alignment
-        length += 2
+        length *= 2
 
     #sys.exit()
-    print "--------------------"
-    print best_score
-    print best_length
-    sys.exit()
+    #print "--------------------"
+    #print avg_score
     return best_alignment
 
+def deepnano_align(probabilities, reference_sequence):
 
-def needle_prob(probabilities, reference_sequence):
+    #print get_sequence_from_prob(origin_prob)[0]
+    #print reference_sequence
+
+    scores = np.zeros(((batch_size*elements_size)+1, len(reference_sequence)+1))
+    #scores.fill(-float("1.0e10"))
+    scores = scores.tolist()
+    alignments = np.chararray(((batch_size*elements_size)+1, len(reference_sequence)+1))
+    alignments.fill("")
+    alignments = alignments.tolist()
+    for i in range(2, (batch_size*elements_size)+1):
+        for j in range(1, len(reference_sequence)+1):
+            best_score = -float("1.0e30")
+            best_string = ""
+            if i > 2:
+                scoring = scores[i-2][j] + math.log(probabilities[i-2]["-"]) + math.log(probabilities[i-1]["-"])
+                if scoring >best_score:
+                    best_score = scoring
+                    best_string = "--"
+
+            scoring = scores[i-2][j-1] + math.log(probabilities[i-2]["-"]) + math.log(probabilities[i-1][reference_sequence[j-1]])
+            if scoring > best_score:
+                best_score = scoring
+                best_string = "-"+reference_sequence[j-1]
+
+            if j > 1:
+                scoring = scores[i-2][j-2] + math.log(probabilities[i-2][reference_sequence[j-2]]) + math.log(probabilities[i-1][reference_sequence[j-1]])
+                if scoring > best_score:
+                    best_score = scoring
+                    best_string = reference_sequence[j-2] + reference_sequence[j-1]
+
+            alignments[i][j] = best_string
+            scores[i][j] = best_score
+
+            '''
+                      int cur_bp = max(1, last_bp - range);
+                      for (int j = max(1, last_bp - range); j <= ref.size() && j <= last_bp + range; j++) {
+                        if (poses[i][j] > poses[i][cur_bp]) {
+                          cur_bp = j;
+                        }
+                      }
+                      last_bp = cur_bp;
+            '''
+
+    best_pos = min(len(reference_sequence), minimum_length_ref_seq, batch_size*elements_size) - 1
+
+    for j in range(best_pos, len(reference_sequence)):
+        if (scores[(batch_size*elements_size)-1][j] > scores[(batch_size*elements_size)-1][best_pos]):
+            best_pos = j
+
+    ipos = (batch_size*elements_size)
+    jpos = best_pos
+
+    final_alignment = ""
+
+    while ipos > 0:
+        if jpos < 0:
+            # it looks like this strategy only works if len(reference_sequence) > len(probabilities)
+            # i have to look into this further and try to correct the error
+            return "", -sys.maxint
+            print len(probabilities)
+            print len(reference_sequence)
+            print best_pos
+            print ipos
+            print "Error possibly occurs when best_pos is smaller than the size of the probabilities."
+            raise Exception
+        string = alignments[ipos][jpos]
+        final_alignment += string[::-1]
+        if (string == ""):
+            break
+        if string[0] == "-" and string[1] == "-":
+            ipos -= 2
+        elif string[0] == "-" and string[1] != "-":
+            ipos -= 2
+            jpos -= 1
+        elif string[0] != "-" and string[1] != "-":
+            ipos -= 2
+            jpos -= 2
+
+    #print best_pos
+
+    #print final_alignment
+    return final_alignment, scores[(batch_size*elements_size)][best_pos]
+
+
+def needle_prob(probabilities, reference_sequence, origin_prob=None):
     '''
         This is a global alignment with no vertical transition. Also, there`s a weight to each score addition equivalent
         to the position of that alignment in the reference sequence. This weight is taken from a normal distribution,
         with a minimum weight, in a way that the position closest to the center of the sequence gets higher weights.
         The goal is to prioritize the right alignment of the middle part, which is less prone to error.
     '''
-    #gauss = np.log(get_gaussian_distr(len(reference_sequence)+1))
+    '''
+        Do not try to do insertions, it does not work.
+        I am still confused on how to properly apply this gauss probability here.
+            I do not have the possibility to move down, so there`s not way it would try to continue in the middle of the
+            sequence for whatever reason. I do have the probability of going right, and that would make more sense, giving
+            it a possibility to skip a reference base, in favor of staying in the middle, now this value should be quite
+            low so it does not affect too much. This would increase the importance given to the middle probabilities.
+    '''
+    gauss = np.log(get_gaussian_distr(len(probabilities)+1))
 
     m, n = len(probabilities), len(reference_sequence)  # length of two sequences
     # Generate DP table and traceback path pointer matrix
     score = (np.zeros((m + 1, n + 1))).tolist()  # the DP table
     # Calculate DP table
+
+    print get_sequence_from_prob(origin_prob)[0]
+    print reference_sequence
 
     for i in range(1, m + 1):
         score[i][0] = score[i-1][0] + math.log(probabilities[i-1][reference_sequence[0]])
@@ -186,37 +275,44 @@ def needle_prob(probabilities, reference_sequence):
 
     for i in range(1, m + 1):
         for j in range(1, n + 1):
-            match = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]])# + gauss[j-1]
-            delete = score[i][j-1] + math.log(probabilities[i - 1]["-"])# + gauss[j-1]
+            match = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]]) + gauss[i-1]
+            delete = score[i][j-1] + math.log(probabilities[i - 1]["-"]) + gauss[i]
             score[i][j] = max(match, delete)
     # Traceback and compute the alignment
+    print score
     align1, align2 = '', ''
     best_j = n
     best_score = score[m][n]
+    '''
     for j in range(1,n-1):
         if score[m][j] > best_score:
             best_j = j
             best_score = score[m][j]
-
+    '''
     i, j = m, best_j  # start from the bottom right cell
     while i > 0 and j > 0:  # end toching the top or the left edge
         score_current = score[i][j]
-        score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]])# + gauss[j-1]
-        score_left = score[i][j-1] + math.log(probabilities[i - 1]["-"])# + gauss[j-1]
+        score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]]) + gauss[i-1]
+        score_left = score[i][j-1] + math.log(probabilities[i - 1]["-"]) + gauss[i]
         if score_current == score_diagonal:
             align2 += reference_sequence[j - 1]
             i -= 1
             j -= 1
+            print "Diagonal"
         elif score_current == score_left:
             align2 += '-'
             i -= 1
+            print "Right"
         else:
             print "Error.\n"
             sys.exit(-1)
+        print "||||||||||||||"
     # Finish tracing up to the top left cell
     while i > 0:
         align2 += '-'
         i -= 1
+    print align2[::-1]
+    sys.exit()
     return align2[::-1], best_score
 
 

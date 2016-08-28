@@ -76,7 +76,7 @@ class basecallTraining():
             basecallTraining.current_input = input
             basecallTraining.current_bases_per_event_ratio = float(float(len(basecallTraining.current_lines[0].split()[3]))/float(len(input)))
         ret = np.asarray(basecallTraining.current_input)[basecallTraining.current_index_input:(basecallTraining.current_index_input + utils.batch_size)]
-        basecallTraining.current_index_input += 1
+        basecallTraining.current_index_input += 2
         return ret
 
     @staticmethod
@@ -87,11 +87,14 @@ class basecallTraining():
         target_file = train_files[num]
         '''
         fromX = int(max(basecallTraining.current_index_reference - utils.extend_size, 0))
-        toX = int(min(basecallTraining.current_index_reference + utils.extend_size + (utils.batch_size*basecallTraining.current_bases_per_event_ratio),len(basecallTraining.current_input)))
+        toX = int(min(basecallTraining.current_index_reference + utils.extend_size + 10*max(utils.batch_size*utils.elements_size, utils.batch_size*basecallTraining.current_bases_per_event_ratio),len(basecallTraining.current_input)))
+
+        if (toX - fromX % 2 != 1):
+            toX += 1
         #print fromX
         #print toX
         target_sequence = basecallTraining.current_lines[0].split()[3][fromX:toX]
-        basecallTraining.current_index_reference += math.ceil(basecallTraining.current_bases_per_event_ratio)
+        basecallTraining.current_index_reference += math.ceil(basecallTraining.current_bases_per_event_ratio*2)
         return target_sequence
 
     def get_test_input(self):
