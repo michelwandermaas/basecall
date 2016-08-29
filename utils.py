@@ -24,32 +24,6 @@ type = tf.float32
 numAcc = 2 #every x iterations for accuracy calculation
 
 
-
-#aligment variables
-'''
-    Since we do not care about evolutionary similarity, we will not use a scoring matrix.
-    Instead, we will use the probabilities to weight the scores.
-    identical_char_score *= average_output_probability(without gaps)
-    non_identical_char_score *= 1-average_output_probability(without gaps)
-    gap_opening_score *= average_gap_probability
-'''
-identical_char_score = 2
-non_identical_char_score = 1
-gap_opening_score = -4
-gap_identical_score = 0
-
-#functions
-
-# it`s impossible to restore the exact same value...
-
-# I can simply transform the one-hot-encoding probabilities to an array of W`s size, and it would be made of 0`s and 1`s
-# that would make one weight go up and the others go down
-
-'''
-    This function will take size, calculate a normal distribution based on mean and stdv. Then it output the f(x), for
-    size x`s between 0 and 1, in order, and equally spaced.
-'''
-
 mean_gaussian = 0.5
 stdv_gaussian = 0.15
 min_gaussian = 0.1
@@ -58,6 +32,12 @@ def gaussian(x, sigma, mu):
     return 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (x - mu) ** 2 / (2 * sigma ** 2))
 
 def get_gaussian_distr(size, sig_gaussian=mean_gaussian, mu_gaussian=mean_gaussian):
+    '''
+    :param size: size of the array returned
+    :param sig_gaussian: sigma
+    :param mu_gaussian: mu
+    :return: np.array of size=size based on a gaussian distribution: f(x) with x=position in the array
+    '''
     x = np.zeros(size)
     step = float(1.0/float(size))
     for i in range(size):
@@ -67,29 +47,14 @@ def get_gaussian_distr(size, sig_gaussian=mean_gaussian, mu_gaussian=mean_gaussi
     return x
 
 def get_sequences_identity(seq1,seq2):
+    '''
+    :return: the percentage of similarity between the two sequences
+    '''
     equal = 0.0
     for i in range(len(seq1)):
         if seq1[i] == seq2[i]:
             equal += 1
     return equal/float(len(seq1))
-
-
-def get_prob_from_output_and_W(output, W): # not being used as of now
-    '''
-    :param output: output from the lstm layers, dimensions = [batch_size][feature_size]
-    :param W: output weights, dimensions =  [element_size][dictionary_size][feature_size]
-    :return: prob: dimensions = [batch_size][element_size][dictionary_size]
-    '''
-    '''
-
-    '''
-    prob = np.zeros((batch_size, elements_size, dictionary_size), dtype=np.float32)
-    for index in range(batch_size):
-        for element in range(elements_size):
-            for word in range(dictionary_size):
-                y = tf.mul(output[index, :], W[element, word, :])
-                prob[index, element, word] = y
-    return prob
 
 
 def get_sequence_from_prob(probabilities):
@@ -98,6 +63,9 @@ def get_sequence_from_prob(probabilities):
     :return: sequences: dimensions = [batch_size]
             output_avg_prob: average probability for the output base
             non_output_avg_prob: average probability for the other bases
+    '''
+    '''
+        This is used to get the most probable sequence,by outputting the most probable base for each element in the event.
     '''
     sequences = ""
     total_out_prob = 0
@@ -114,17 +82,11 @@ def get_sequence_from_prob(probabilities):
     output_avg_prob = total_out_prob/(batch_size*elements_size*dictionary_size)
     return sequences, output_avg_prob, (1-output_avg_prob)
 
-def score_match(A,B, match_score, mismatch_score, gap_score, gap_identical_score):
-    if (A == "-" and B == "-"):
-        return gap_identical_score
-    elif (A==B):
-        return match_score
-    elif(A=='-' or B =='-'):
-        return gap_score
-    else:
-        return mismatch_score
-
 def get_prob_dict(prob):
+    '''
+        This is used to build a list of dictionaries from output probabilities in the dimensions:[batch_size*element_size].
+        Each size dictionary will be in the form: key="Base" value:probability
+    '''
     return_list = []
     for x in prob:
         dict = {}
@@ -133,9 +95,20 @@ def get_prob_dict(prob):
         return_list.append(dict)
     return return_list
 
-minimum_length_ref_seq = batch_size*elements_size
+minimum_length_ref_seq = batch_size*elements_size #minimum size of the reference sequence used in the alignment
 
 def align_by_prob(probabilities,reference_sequence):
+    '''
+    :param probabilities: output probabilities
+    :param reference_sequence: reference sequence, probability larger than needed
+    :return: best alignment found, or one that satisfies the minimum requirements
+    '''
+    '''
+        The function receives a large reference sequence and aligns it to the probabilities.
+        It starts with a small (minimum_length_ref_seq) sequence in the middle of the reference sequence, and it keeps
+        inscreasing the size of the sequence to be used in the alignment until the average alignment probability is higher
+        than a fixed constant or until it uses all the reference sequence.
+    '''
     length = minimum_length_ref_seq
     best_alignment = ""
     middle_point = len(reference_sequence)/2
@@ -157,9 +130,16 @@ def align_by_prob(probabilities,reference_sequence):
     return best_alignment
 
 def deepnano_align(probabilities, reference_sequence):
-
-    #print get_sequence_from_prob(origin_prob)[0]
-    #print reference_sequence
+    '''
+        This alignment is based on deepnano`s approach for the alignment. It is a dynamic programming algorithm,
+        it fills each cell of the array with the max score of one of the three possible cenarios:
+            1. gap, gap
+            2. gap, base
+            3. base, base
+        At the end it tracesback from the scores and figures the best alignment. It is not a global alignment, but it
+        requires the alignment to use all the probabilities. Therefore the best alignment is somewhere in the last row,
+        assuming rows are made out of probabilities and columns of the reference sequence.
+    '''
 
     scores = np.zeros(((batch_size*elements_size)+1, len(reference_sequence)+1))
     #scores.fill(-float("1.0e10"))
@@ -252,10 +232,10 @@ def needle_prob(probabilities, reference_sequence, origin_prob=None):
     '''
         Do not try to do insertions, it does not work.
         I am still confused on how to properly apply this gauss probability here.
-            I do not have the possibility to move down, so there`s not way it would try to continue in the middle of the
-            sequence for whatever reason. I do have the probability of going right, and that would make more sense, giving
-            it a possibility to skip a reference base, in favor of staying in the middle, now this value should be quite
-            low so it does not affect too much. This would increase the importance given to the middle probabilities.
+        I do not have the possibility to move down, so there`s not way it would try to continue in the middle of the
+        sequence for whatever reason. I do have the probability of going right, and that would make more sense, giving
+        it a possibility to skip a reference base, in favor of staying in the middle, now this value should be quite
+        low so it does not affect too much. This would increase the importance given to the middle probabilities.
     '''
     gauss = np.log(get_gaussian_distr(len(probabilities)+1))
 
@@ -312,66 +292,7 @@ def needle_prob(probabilities, reference_sequence, origin_prob=None):
         align2 += '-'
         i -= 1
     print align2[::-1]
-    sys.exit()
     return align2[::-1], best_score
-
-
-def needle(seq1, seq2, match_score, mismatch_score, gap_score, gap_identical_score): #seq 1 equals output and seq2 equals reference, returns seq2 aligned
-    '''
-    :param seq1: output
-    :param seq2: reference
-    :param match_score:
-    :param mismatch_score:
-    :return: reference aligned
-    '''
-    '''
-        This is a global alignment with no vertical transition. Also, there`s a weight to each score addition equivalent
-        to the position of that alignment in the reference sequence. This weight is taken from a normal distribution,
-        with a minimum weight, in a way that the position closest to the center of the sequence gets higher weights.
-        The objective is to allow for the output to align itself to the any part of the sequence (even the overextensions
-        on each side) but give it a push to align with the center.
-    '''
-    m, n = len(seq1), len(seq2)  # length of two sequences
-    # Generate DP table and traceback path pointer matrix
-    score = (np.zeros((m + 1, n + 1))).tolist()  # the DP table
-    # Calculate DP table
-    for i in range(0, m + 1):
-        score[i][0] = gap_opening_score * i
-    for i in range(1, m + 1):
-        for j in range(1, n + 1):
-            match = score[i - 1][j - 1] + score_match(seq1[i - 1], seq2[j - 1], match_score, mismatch_score, gap_score, gap_identical_score)
-            delete = score[i - 1][j] + gap_opening_score
-            score[i][j] = max(match, delete)
-    # Traceback and compute the alignment
-    align1, align2 = '', ''
-    i, j = m, n  # start from the bottom right cell
-    while i > 0 and j > 0:  # end toching the top or the left edge
-        score_current = score[i][j]
-        score_diagonal = score[i - 1][j - 1]
-        score_left = score[i - 1][j]
-        if score_current == score_diagonal + score_match(seq1[i - 1], seq2[j - 1], match_score, mismatch_score, gap_score, gap_identical_score):
-            align1 += seq1[i - 1]
-            align2 += seq2[j - 1]
-            i -= 1
-            j -= 1
-        elif score_current == score_left + gap_opening_score:
-            align1 += seq1[i - 1]
-            align2 += '-'
-            i -= 1
-        else:
-            print "Error.\n"
-            sys.exit(-1)
-    # Finish tracing up to the top left cell
-    while i > 0:
-        align1 += seq1[i - 1]
-        align2 += '-'
-        i -= 1
-    return align2[::-1]
-
-def align(output_sequence, target_sequence, output_avg_prob, non_output_avg_prob): # TODO: see if I am getting the right alignment
-    # this function returns a listo of alignments with the highest score. I will choose only the first, and I only care about the sequence itself, not the score
-    ret = needle(output_sequence,target_sequence,identical_char_score*output_avg_prob,non_identical_char_score*non_output_avg_prob, gap_opening_score*non_output_avg_prob, gap_identical_score)
-    return ret
 
 def get_one_hot_encoding_prob(aligned_reference):
     '''
@@ -409,6 +330,11 @@ def get_argmax_encoding_prob(seq):
 
     return np.asarray(sequences)
 
+
+'''
+    Functions that assign random values for the inputs of the training network.
+    It is used to test if the network is properly working.
+'''
 def get_next_input():
     return np.random.rand(batch_size, feature_size)
 
