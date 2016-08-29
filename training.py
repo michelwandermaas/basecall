@@ -4,6 +4,18 @@ import numpy as np
 import sys
 
 def training(get_next_input, get_next_reference_sequence, get_test_input = None, get_test_reference_input = None):
+    '''
+        Network layout:
+
+            1. Input: events features, reference sequence
+            2. 3 layers of bidirectional LSTMs with hidden_size=utils.lstm_hidden_size
+            3. Multiply output by variable W
+            4. Align the output probabilities with the reference sequence
+            5. Get one hot encoding probabilities for the reference alignment
+            6. Calculate cost=(reference_prob - output_prob)*gaussian_distribution.
+                This way getting the probabilities right in the middle events is prioritized.
+            7. Minimize the loss (applying gradients)
+    '''
 
     sess = tf.Session()
 
@@ -14,8 +26,6 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
     target_probabilties = tf.placeholder(utils.type, [utils.batch_size * utils.elements_size, utils.dictionary_size])
 
     gaussian = tf.placeholder(utils.type, [utils.batch_size * utils.elements_size, utils.dictionary_size])
-
-    target_max = tf.placeholder(utils.type, [utils.batch_size * utils.elements_size])
 
     with tf.variable_scope("fw1"):
         lstm_fw_cell_1 = tf.nn.rnn_cell.BasicLSTMCell(utils.lstm_hidden_size, forget_bias=1.0, state_is_tuple=True)
@@ -79,8 +89,6 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
         prob_reshaped = np.reshape(prob, (utils.batch_size, utils.elements_size, utils.dictionary_size))
 
-        output_sequence, output_avg_prob, non_output_avg_prob = utils.get_sequence_from_prob(prob_reshaped)
-
         probabilities_dict = utils.get_prob_dict(prob)
 
         aligned_reference = utils.align_by_prob(probabilities_dict, reference_sequence)
@@ -91,8 +99,11 @@ def training(get_next_input, get_next_reference_sequence, get_test_input = None,
 
         opt, summary = sess.run([optimizer, merged], feed_dict={X: my_input, target_probabilties: target_prob, gaussian: extended_gauss})
         if (i % utils.numAcc == 0):
+            '''
+                Calculate accuracy and print
+            '''
+            output_sequence, output_avg_prob, non_output_avg_prob = utils.get_sequence_from_prob(prob_reshaped)
             print "Iteration "+str(i)
-            #print prob_reshaped
             print "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
             print output_sequence
             #print "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"

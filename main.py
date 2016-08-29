@@ -52,7 +52,12 @@ class basecallTraining():
 
     @staticmethod
     def get_next_input():
-        if (basecallTraining.current_file == "" or (basecallTraining.current_file_length - basecallTraining.current_index_input) < utils.batch_size):
+        '''
+            It reads an entire event file and its reference. When the file reaches the end it picks another one at random
+            and it does the same reading process. The function returns the next event input of the current file,
+            in a sliding window.
+        '''
+        if (basecallTraining.current_file == "" or (basecallTraining.current_file_length - basecallTraining.current_index_input) <= utils.batch_size):
             basecallTraining.resetValues()
             train_files = basecallTraining.getFiles(basecallTraining.train_dir)
             num = random.randrange(0,len(train_files))
@@ -82,19 +87,16 @@ class basecallTraining():
     @staticmethod
     def get_next_reference_sequence():
         '''
-        train_files = basecallTraining.getFiles(basecallTraining.train_dir)
-        num = random.randrange(0,len(train_files))
-        target_file = train_files[num]
+            This calculates where the the next reference sequence is and returns it. It works like a sliding window.
         '''
         fromX = int(max(basecallTraining.current_index_reference - utils.extend_size, 0))
-        toX = int(min(basecallTraining.current_index_reference + utils.extend_size + 10*max(utils.batch_size*utils.elements_size, utils.batch_size*basecallTraining.current_bases_per_event_ratio),len(basecallTraining.current_input)))
+        toX = int(min(basecallTraining.current_index_reference + utils.extend_size + 4*max(utils.batch_size*utils.elements_size, utils.batch_size*basecallTraining.current_bases_per_event_ratio),len(basecallTraining.current_input)))
 
         if (toX - fromX % 2 != 1):
             toX += 1
-        #print fromX
-        #print toX
+
         target_sequence = basecallTraining.current_lines[0].split()[3][fromX:toX]
-        basecallTraining.current_index_reference += math.ceil(basecallTraining.current_bases_per_event_ratio*2)
+        basecallTraining.current_index_reference += math.ceil(basecallTraining.current_bases_per_event_ratio)
         return target_sequence
 
     def get_test_input(self):
@@ -121,7 +123,6 @@ class basecallTraining():
     def startTraining(self):
         training.training(self.get_next_input,self.get_next_reference_sequence)
         return 0
-
 
 
 if __name__ == "__main__":

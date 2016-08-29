@@ -88,7 +88,8 @@ def get_prob_dict(prob):
         Each size dictionary will be in the form: key="Base" value:probability
     '''
     return_list = []
-    for x in prob:
+    new_prob = np.log(prob)
+    for x in new_prob:
         dict = {}
         for y in range(len(x)):
             dict[dictionary[y]] = x[y]
@@ -122,11 +123,8 @@ def align_by_prob(probabilities,reference_sequence):
         if avg_score > best_score:
             best_score = avg_score
             best_alignment = alignment
-        length *= 2
+        length += 8
 
-    #sys.exit()
-    #print "--------------------"
-    #print avg_score
     return best_alignment
 
 def deepnano_align(probabilities, reference_sequence):
@@ -142,44 +140,32 @@ def deepnano_align(probabilities, reference_sequence):
     '''
 
     scores = np.zeros(((batch_size*elements_size)+1, len(reference_sequence)+1))
-    #scores.fill(-float("1.0e10"))
     scores = scores.tolist()
     alignments = np.chararray(((batch_size*elements_size)+1, len(reference_sequence)+1))
     alignments.fill("")
     alignments = alignments.tolist()
     for i in range(2, (batch_size*elements_size)+1):
         for j in range(1, len(reference_sequence)+1):
-            best_score = -float("1.0e30")
-            best_string = ""
             if i > 2:
-                scoring = scores[i-2][j] + math.log(probabilities[i-2]["-"]) + math.log(probabilities[i-1]["-"])
-                if scoring >best_score:
-                    best_score = scoring
-                    best_string = "--"
+                best_score = scores[i-2][j] + probabilities[i-2]["-"] + probabilities[i-1]["-"]
+                best_string = "--"
+            else:
+                best_score = scores[i-2][j-1] + probabilities[i-2]["-"] + probabilities[i-1][reference_sequence[j-1]]
+                best_string = "-" + reference_sequence[j - 1]
 
-            scoring = scores[i-2][j-1] + math.log(probabilities[i-2]["-"]) + math.log(probabilities[i-1][reference_sequence[j-1]])
+            scoring = scores[i-2][j-1] + probabilities[i-2]["-"] + probabilities[i-1][reference_sequence[j-1]]
             if scoring > best_score:
                 best_score = scoring
                 best_string = "-"+reference_sequence[j-1]
 
             if j > 1:
-                scoring = scores[i-2][j-2] + math.log(probabilities[i-2][reference_sequence[j-2]]) + math.log(probabilities[i-1][reference_sequence[j-1]])
+                scoring = scores[i-2][j-2] + probabilities[i-2][reference_sequence[j-2]] + probabilities[i-1][reference_sequence[j-1]]
                 if scoring > best_score:
                     best_score = scoring
                     best_string = reference_sequence[j-2] + reference_sequence[j-1]
 
             alignments[i][j] = best_string
             scores[i][j] = best_score
-
-            '''
-                      int cur_bp = max(1, last_bp - range);
-                      for (int j = max(1, last_bp - range); j <= ref.size() && j <= last_bp + range; j++) {
-                        if (poses[i][j] > poses[i][cur_bp]) {
-                          cur_bp = j;
-                        }
-                      }
-                      last_bp = cur_bp;
-            '''
 
     best_pos = min(len(reference_sequence), minimum_length_ref_seq, batch_size*elements_size) - 1
 
@@ -189,24 +175,18 @@ def deepnano_align(probabilities, reference_sequence):
 
     ipos = (batch_size*elements_size)
     jpos = best_pos
+    # One might want to force a global alignment with the following line
+    #jpos = len(reference_sequence)
 
     final_alignment = ""
 
     while ipos > 0:
-        if jpos < 0:
-            # it looks like this strategy only works if len(reference_sequence) > len(probabilities)
-            # i have to look into this further and try to correct the error
-            return "", -sys.maxint
-            print len(probabilities)
-            print len(reference_sequence)
-            print best_pos
-            print ipos
-            print "Error possibly occurs when best_pos is smaller than the size of the probabilities."
-            raise Exception
         string = alignments[ipos][jpos]
         final_alignment += string[::-1]
         if (string == ""):
-            break
+            print ipos
+            print jpos
+            raise Exception
         if string[0] == "-" and string[1] == "-":
             ipos -= 2
         elif string[0] == "-" and string[1] != "-":
@@ -216,83 +196,7 @@ def deepnano_align(probabilities, reference_sequence):
             ipos -= 2
             jpos -= 2
 
-    #print best_pos
-
-    #print final_alignment
     return final_alignment, scores[(batch_size*elements_size)][best_pos]
-
-
-def needle_prob(probabilities, reference_sequence, origin_prob=None):
-    '''
-        This is a global alignment with no vertical transition. Also, there`s a weight to each score addition equivalent
-        to the position of that alignment in the reference sequence. This weight is taken from a normal distribution,
-        with a minimum weight, in a way that the position closest to the center of the sequence gets higher weights.
-        The goal is to prioritize the right alignment of the middle part, which is less prone to error.
-    '''
-    '''
-        Do not try to do insertions, it does not work.
-        I am still confused on how to properly apply this gauss probability here.
-        I do not have the possibility to move down, so there`s not way it would try to continue in the middle of the
-        sequence for whatever reason. I do have the probability of going right, and that would make more sense, giving
-        it a possibility to skip a reference base, in favor of staying in the middle, now this value should be quite
-        low so it does not affect too much. This would increase the importance given to the middle probabilities.
-    '''
-    gauss = np.log(get_gaussian_distr(len(probabilities)+1))
-
-    m, n = len(probabilities), len(reference_sequence)  # length of two sequences
-    # Generate DP table and traceback path pointer matrix
-    score = (np.zeros((m + 1, n + 1))).tolist()  # the DP table
-    # Calculate DP table
-
-    print get_sequence_from_prob(origin_prob)[0]
-    print reference_sequence
-
-    for i in range(1, m + 1):
-        score[i][0] = score[i-1][0] + math.log(probabilities[i-1][reference_sequence[0]])
-
-    for j in range(1, n + 1):
-        score[0][j] = score[0][j - 1] + math.log(probabilities[0]["-"])
-
-    for i in range(1, m + 1):
-        for j in range(1, n + 1):
-            match = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]]) + gauss[i-1]
-            delete = score[i][j-1] + math.log(probabilities[i - 1]["-"]) + gauss[i]
-            score[i][j] = max(match, delete)
-    # Traceback and compute the alignment
-    print score
-    align1, align2 = '', ''
-    best_j = n
-    best_score = score[m][n]
-    '''
-    for j in range(1,n-1):
-        if score[m][j] > best_score:
-            best_j = j
-            best_score = score[m][j]
-    '''
-    i, j = m, best_j  # start from the bottom right cell
-    while i > 0 and j > 0:  # end toching the top or the left edge
-        score_current = score[i][j]
-        score_diagonal = score[i - 1][j - 1] + math.log(probabilities[i - 1][reference_sequence[j - 1]]) + gauss[i-1]
-        score_left = score[i][j-1] + math.log(probabilities[i - 1]["-"]) + gauss[i]
-        if score_current == score_diagonal:
-            align2 += reference_sequence[j - 1]
-            i -= 1
-            j -= 1
-            print "Diagonal"
-        elif score_current == score_left:
-            align2 += '-'
-            i -= 1
-            print "Right"
-        else:
-            print "Error.\n"
-            sys.exit(-1)
-        print "||||||||||||||"
-    # Finish tracing up to the top left cell
-    while i > 0:
-        align2 += '-'
-        i -= 1
-    print align2[::-1]
-    return align2[::-1], best_score
 
 def get_one_hot_encoding_prob(aligned_reference):
     '''
