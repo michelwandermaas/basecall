@@ -32,5 +32,7 @@ do
 done
 rm file_names
 rm -rf train
+rm *_seq
+rm *_name
 mkdir $OUTPUT_FOLDER
 mv *.input $OUTPUT_FOLDER
