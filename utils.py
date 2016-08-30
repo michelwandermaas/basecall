@@ -21,7 +21,7 @@ learning_rate = 0.01
 training_steps = 10000
 type = tf.float32
 
-numAcc = 2 #every x iterations for accuracy calculation
+numAcc = 50 #every x iterations for accuracy calculation
 
 
 mean_gaussian = 0.5

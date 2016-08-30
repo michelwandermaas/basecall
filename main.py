@@ -90,7 +90,7 @@ class basecallTraining():
             This calculates where the the next reference sequence is and returns it. It works like a sliding window.
         '''
         fromX = int(max(basecallTraining.current_index_reference - utils.extend_size, 0))
-        toX = int(min(basecallTraining.current_index_reference + utils.extend_size + 4*max(utils.batch_size*utils.elements_size, utils.batch_size*basecallTraining.current_bases_per_event_ratio),len(basecallTraining.current_input)))
+        toX = int(min(basecallTraining.current_index_reference + utils.extend_size + 2*max(utils.batch_size*utils.elements_size, utils.batch_size*basecallTraining.current_bases_per_event_ratio),len(basecallTraining.current_input)))
 
         if (toX - fromX % 2 != 1):
             toX += 1
