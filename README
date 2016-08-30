@@ -1,0 +1,44 @@
+Summary of the project:
+
+
+Choosing a framework:
+
+	Right now, there are two deep learning frameworks that could possibly work with multiple nodes on Cori.
+
+		Intel-caffe (distribution of caffe optimized for intel processors, with MPI support. It is up-to-date with the main caffe distribution, and therefore it does not currently support RNNs)
+
+		Tensorflow (it is more complicated to parallelize it, but it should work with multiple nodes. I wrote a script that takes care of the problem of launching the jobs on Cori: https://github.com/michelwandermaas/tf_distri_cori)
+
+	I decided to work with Tensorflow because it supports RNNs.
+
+
+Current state of the network:
+	https://github.com/michelwandermaas/basecall
+
+Requirements:
+	For preprocessing: poretools
+	For training: tensorflow
+
+Preprocessing:
+	run ./data/preprocess.sh INPUT_FILE OUTPUT_DIR
+	the input_file in question is the odd.train or the even.train built with Rob`s script
+Layout:
+
+    1. Input: events features, reference sequence
+    2. 3 layers of bidirectional LSTMs with hidden_size=utils.lstm_hidden_size
+    3. Multiply output by variable W
+    4. Align the output probabilities with the reference sequence
+    5. Get one hot encoding probabilities for the reference alignment
+    6. Calculate cost=(reference_prob - output_prob)*gaussian_distribution.
+        This way getting the probabilities right in the middle events is prioritized.
+    7. Minimize the loss (applying gradients)
+
+The most complicated/challenging part is the alignment. It is not known in advance what each event aligns to. The following approaches were attempted:
+	Output the most probable base for each event, concatenate and align it to a reference sequence. (Both local alignments and global alignments did not work well. In this approach, as well as for all the alignments, it is important to make sure the alignment is exactly the size we want, so we can map each element of the event output to a base/gap.)
+	Try to maximize the probability of the sequences aligning. (This is the way deepnano does, but it did not work really well in my network)
+
+Another idea that was implemented is the gaussian distribution:
+	The idea is to assign a higher weight in the loss function for the middle events. For this idea to work it is important to somehow use the same distribution to assign a higher weight for the middle events during the alignment, which I did not do.
+
+Also the way I calculate the loss might be not be ideal, but I could not think of another way to do it, in which I could calculate and apply the gradients afterwards.
+
